@@ -1,0 +1,34 @@
+# Dependências e build
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Zips gerados pelo Terraform a partir de dist/
+infra/.build/
+
+# Terraform: cache local e state (o state mora no S3)
+infra/.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+
+# Valores reais de variáveis (contêm o JWT secret)
+*.tfvars
+!*.tfvars.example
+
+# Planos: são ZIPs que embutem snapshot do state, com segredos dentro
+*.tfplan
+tfplan
+plan.txt
+
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+
+# Sistema operacional / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

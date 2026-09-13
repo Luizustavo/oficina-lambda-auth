@@ -1,0 +1,12 @@
+# Copie para terraform.tfvars (ignorado pelo git) e ajuste.
+
+aws_region   = "sa-east-1"
+aws_profile  = "oficina-fase2"
+project_name = "oficina-backend"
+
+jwt_expires_in     = "15m"
+log_retention_days = 7
+
+# Deixe comentado para o Terraform gerar o segredo. Preencha apenas se
+# quiser reaproveitar o JWT_SECRET que já está no Secret do Kubernetes.
+# jwt_secret = "..."

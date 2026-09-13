@@ -1,0 +1,209 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Ação a executar'
+        required: true
+        default: plan
+        type: choice
+        options: [plan, apply, destroy]
+
+concurrency:
+  group: lambda-auth
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  AWS_REGION: sa-east-1
+  NODE_VERSION: '20'
+  TF_IN_AUTOMATION: 'true'
+  TF_VAR_aws_profile: ''
+
+jobs:
+  # -------------------------------------------------------------------------
+  test:
+    name: Testes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Testes unitários (cobertura mínima 80%)
+        run: npm test -- --coverage
+
+  # -------------------------------------------------------------------------
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name != 'workflow_dispatch' || inputs.action == 'plan'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      # O Terraform empacota dist/ com archive_file, então o build precisa
+      # rodar antes de qualquer plan ou apply.
+      - name: Build dos bundles
+        run: |
+          npm ci
+          npm run build
+
+      # Falha cedo e com mensagem clara se a cadeia de infraestrutura ainda
+      # não foi provisionada, em vez de estourar num erro obscuro de output.
+      - name: Conferir dependências de infraestrutura
+        run: |
+          set -euo pipefail
+          BUCKET="oficina-backend-tfstate-765465309229"
+          for dep in k8s database; do
+            if ! aws s3api head-object --bucket "$BUCKET" --key "$dep/terraform.tfstate" >/dev/null 2>&1; then
+              echo "::error::State '$dep' não encontrado. Rode o apply de oficina-infra-$dep primeiro."
+              exit 1
+            fi
+          done
+
+      - name: Format check
+        run: terraform -chdir=infra fmt -check -recursive -diff
+
+      - name: Init
+        run: terraform -chdir=infra init -input=false
+
+      - name: Validate
+        run: terraform -chdir=infra validate -no-color
+
+      - name: Plan
+        run: |
+          set -euo pipefail
+          terraform -chdir=infra plan -input=false -no-color -out=tfplan
+          terraform -chdir=infra show -no-color tfplan > plan.txt
+
+      - name: Comentar o plan no PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let plan = fs.readFileSync('plan.txt', 'utf8');
+            const LIMIT = 60000;
+            if (plan.length > LIMIT) {
+              plan = plan.slice(0, LIMIT) + '\n\n... (plan truncado — veja o log completo do job)';
+            }
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `#### Terraform Plan — \`oficina-lambda-auth\`\n\n<details><summary>Ver plan</summary>\n\n\`\`\`terraform\n${plan}\n\`\`\`\n\n</details>`,
+            });
+
+  # -------------------------------------------------------------------------
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    needs: test
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'apply')
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      - name: Build dos bundles
+        run: |
+          npm ci
+          npm run build
+
+      - name: Init
+        run: terraform -chdir=infra init -input=false
+
+      - name: Apply
+        run: terraform -chdir=infra apply -input=false -auto-approve
+
+      - name: Resumo
+        run: |
+          {
+            echo "### Lambda e API Gateway publicados"
+            echo '```'
+            terraform -chdir=infra output -json \
+              | jq -r 'to_entries[] | select(.value.sensitive | not) | "\(.key) = \(.value.value)"'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # -------------------------------------------------------------------------
+  destroy:
+    name: Destroy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'destroy'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+
+      # archive_file precisa dos arquivos existirem mesmo no destroy.
+      - name: Build dos bundles
+        run: |
+          npm ci
+          npm run build
+
+      - name: Init
+        run: terraform -chdir=infra init -input=false
+
+      # Este é o PRIMEIRO repositório a ser destruído: ele cria uma regra no
+      # security group do RDS, que pertence ao repositório do banco.
+      - name: Destroy
+        run: terraform -chdir=infra destroy -input=false -auto-approve
