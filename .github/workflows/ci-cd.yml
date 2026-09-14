@@ -79,28 +79,50 @@ jobs:
           npm ci
           npm run build
 
-      # Falha cedo e com mensagem clara se a cadeia de infraestrutura ainda
-      # não foi provisionada, em vez de estourar num erro obscuro de output.
+      # A cadeia k8s -> database precisa existir para haver o que planejar.
+      # Entre sessões de trabalho ela é destruída para não gerar custo, então
+      # ausente é o estado normal, não um defeito.
+      #
+      # Aqui isso é "pular", não "falhar": um X vermelho permanente num
+      # repositório que está correto só ensina todo mundo a ignorar o sinal.
+      # O resumo do job diz o que aconteceu, e o job de deploy continua
+      # tratando a mesma condição como erro.
       - name: Conferir dependências de infraestrutura
-        run: ./scripts/check-infra-deps.sh
+        id: deps
+        run: |
+          if ./scripts/check-infra-deps.sh; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Plan pulado: a infraestrutura ainda não foi provisionada"
+              echo
+              echo "Este repositório lê a rede de \`oficina-infra-k8s\` e a connection string de \`oficina-infra-database\`. Sem os dois states não existe estado contra o qual planejar."
+              echo
+              echo "Aplique na ordem k8s → database e reexecute este workflow."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Format check
         run: terraform -chdir=infra fmt -check -recursive -diff
 
       - name: Init
+        if: steps.deps.outputs.ready == 'true'
         run: terraform -chdir=infra init -input=false
 
       - name: Validate
+        if: steps.deps.outputs.ready == 'true'
         run: terraform -chdir=infra validate -no-color
 
       - name: Plan
+        if: steps.deps.outputs.ready == 'true'
         run: |
           set -euo pipefail
           terraform -chdir=infra plan -input=false -no-color -out=tfplan
           terraform -chdir=infra show -no-color tfplan > plan.txt
 
       - name: Comentar o plan no PR
-        if: github.event_name == 'pull_request'
+        if: steps.deps.outputs.ready == 'true' && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
