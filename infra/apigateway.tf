@@ -28,12 +28,23 @@ resource "aws_apigatewayv2_integration" "auth_lambda" {
 # Encaminha para o NodePort da aplicação no nó k3s. Não há Load Balancer no
 # meio: o k3s puro não provisiona ELB, então o gateway fala direto com o IP
 # elástico do nó (ver o repositório oficina-infra-k8s).
+#
+# O caminho é repassado com `overwrite:path = $request.path`, e não montado
+# com `{proxy}` na URI. A diferença importa: numa rota específica como
+# `ANY /api/health/{proxy+}`, a variável {proxy} captura apenas o trecho
+# DEPOIS do prefixo — `/api/health/live` viraria {proxy}="live" e a aplicação
+# receberia `/live`, respondendo 404. `$request.path` carrega sempre o
+# caminho original inteiro, valendo igual para todas as rotas.
 resource "aws_apigatewayv2_integration" "app_proxy" {
   api_id                 = aws_apigatewayv2_api.main.id
   integration_type       = "HTTP_PROXY"
   integration_method     = "ANY"
-  integration_uri        = "${local.app_origin}/{proxy}"
+  integration_uri        = local.app_origin
   payload_format_version = "1.0"
+
+  request_parameters = {
+    "overwrite:path" = "$request.path"
+  }
 }
 
 resource "aws_lambda_permission" "auth_invoke" {
@@ -88,10 +99,20 @@ resource "aws_apigatewayv2_route" "auth_cpf" {
 # Rotas que precisam ficar abertas: healthcheck (Kubernetes e monitoração),
 # Swagger (avaliação) e o login de usuário interno da própria aplicação.
 locals {
+  # Cada prefixo precisa das duas formas: com sub-caminho e exato. Sem a
+  # exata, `GET /api/docs` (a raiz do Swagger) cairia no ANY /{proxy+}
+  # protegido e responderia 401 em vez de abrir a documentação.
   public_routes = {
-    health = "ANY /api/health/{proxy+}"
-    docs   = "ANY /api/docs/{proxy+}"
-    auth   = "ANY /api/auth/{proxy+}"
+    health      = "ANY /api/health/{proxy+}"
+    health_raiz = "ANY /api/health"
+    docs        = "ANY /api/docs/{proxy+}"
+    docs_raiz   = "ANY /api/docs"
+    # O Swagger UI busca a especificação nestes dois endpoints. Sem eles a
+    # página abre, mas não consegue renderizar a documentação.
+    docs_json = "ANY /api/docs-json"
+    docs_yaml = "ANY /api/docs-yaml"
+    auth      = "ANY /api/auth/{proxy+}"
+    auth_raiz = "ANY /api/auth"
   }
 }
 
