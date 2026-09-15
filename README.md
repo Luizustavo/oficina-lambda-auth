@@ -9,6 +9,21 @@
 
 ---
 
+## Deploy ativo
+
+| Recurso | Endereço |
+|---|---|
+| **API Gateway (porta de entrada do sistema)** | `https://dzsca8yk0b.execute-api.sa-east-1.amazonaws.com` — a raiz responde **401**: é o Lambda authorizer barrando na borda, como projetado |
+| **Autenticação por CPF** | `POST https://dzsca8yk0b.execute-api.sa-east-1.amazonaws.com/auth/cpf` |
+| **Swagger da aplicação** | https://dzsca8yk0b.execute-api.sa-east-1.amazonaws.com/api/docs |
+| **OpenAPI (JSON)** | https://dzsca8yk0b.execute-api.sa-east-1.amazonaws.com/api/docs-json |
+
+Para obter o endereço atual: `terraform -chdir=infra output -raw api_gateway_url`
+
+> A infraestrutura é destruída ao final de cada sessão de trabalho para não consumir crédito. Enquanto estiver fora, os endereços não respondem — e alguns mudam a cada novo `apply`. O vídeo de demonstração mostra o ambiente no ar.
+
+---
+
 ## Propósito
 
 Um cliente da oficina não tem usuário e senha — ele tem CPF. Esta função recebe o CPF, valida os dígitos verificadores, confirma que o cliente existe na base e devolve um JWT que a API principal aceita nas rotas protegidas.
