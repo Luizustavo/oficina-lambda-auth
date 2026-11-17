@@ -121,6 +121,12 @@ locals {
     billing_docs      = "ANY /api/billing/docs/{proxy+}"
     billing_docs_raiz = "ANY /api/billing/docs"
     billing_docs_json = "ANY /api/billing/docs-json"
+
+    # Execution Service (Fase 4): só healthcheck e Swagger; as rotas da fila exigem token.
+    execution_health    = "ANY /api/execution/health/{proxy+}"
+    execution_docs      = "ANY /api/execution/docs/{proxy+}"
+    execution_docs_raiz = "ANY /api/execution/docs"
+    execution_docs_json = "ANY /api/execution/docs-json"
   }
 }
 
