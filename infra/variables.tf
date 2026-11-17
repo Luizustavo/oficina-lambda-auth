@@ -29,6 +29,13 @@ variable "jwt_secret" {
   sensitive   = true
 }
 
+variable "auth_reader_password" {
+  description = "Password of the read-only database user of the CPF Lambda. Leave empty to generate one; the same value must go into AUTH_READER_PASSWORD of the oficina-backend oficina-db-admin Secret."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "jwt_expires_in" {
   description = "Lifetime of the customer access token issued by the Lambda"
   type        = string

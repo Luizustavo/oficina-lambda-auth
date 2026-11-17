@@ -2,10 +2,12 @@
 
 **Function serverless de autenticação por CPF** e **API Gateway** do sistema de gestão de oficina mecânica. É a porta de entrada pública de todo o sistema.
 
-> Parte do Tech Challenge SOAT — Fase 3. Repositórios irmãos:
+> Parte do Tech Challenge SOAT — Fases 3 e 4. Repositórios irmãos:
 > [`oficina-infra-k8s`](https://github.com/Luizustavo/oficina-infra-k8s) ·
 > [`oficina-infra-database`](https://github.com/Luizustavo/oficina-infra-database) ·
-> [`oficina-backend`](https://github.com/Luizustavo/oficina-backend)
+> [`oficina-backend`](https://github.com/Luizustavo/oficina-backend) (OS Service) ·
+> [`oficina-billing-service`](https://github.com/Luizustavo/oficina-billing-service) ·
+> [`oficina-execution-service`](https://github.com/Luizustavo/oficina-execution-service)
 
 ---
 
@@ -84,6 +86,8 @@ No HTTP API a rota mais específica vence a mais genérica, então as públicas 
 
 ## Decisões que valem explicação
 
+**Por que a Lambda lê a tabela `customers` de outro repositório.** Na Fase 4 a regra é "nenhum serviço acessa o banco de outro". Esta Lambda **é parte do OS Service** ([ADR-014](https://github.com/Luizustavo/oficina-backend/blob/main/docs/adr/adr-014-lambda-de-autenticacao-e-a-tabela-customers.md)): é a porta de entrada de autenticação dele, implantada como função serverless, com o mesmo dono e o mesmo dado (`customers`, do `oficina_db`). Os dois repositórios mudam juntos, e a consulta (`SELECT id, name, email, document FROM customers WHERE document = $1`, CPF só com dígitos) é contrato entre eles. O Billing e o Execution não leem `customers`: recebem os dados do cliente nas mensagens da saga. No banco, a Lambda usa o usuário `auth_reader`, que só tem `SELECT` nessas quatro colunas: ela não lê nem escreve mais nada.
+
 **Por que um Lambda Authorizer e não o JWT authorizer nativo do API Gateway.** O nativo só valida tokens assinados com chave assimétrica via JWKS/OIDC (RS256). Os tokens aqui são HS256, assinados com um segredo simétrico compartilhado com a aplicação — então a verificação precisa ser nossa.
 
 **Por que `pg` puro e não Prisma.** O engine binário do Prisma estoura o limite prático de tamanho da Lambda e piora muito o cold start. Para duas queries simples, o driver puro resolve: os bundles saem com 142 KB e 57 KB.
@@ -155,9 +159,21 @@ O Terraform gera o segredo HS256 compartilhado. **O mesmo valor precisa estar no
 terraform output -raw jwt_secret
 ```
 
-Coloque o valor em `JWT_SECRET` no `k8s/secret.yaml` de `oficina-backend` e reaplique o Secret e o Deployment.
+Coloque o valor em `JWT_SECRET` no `k8s/secret.yaml` dos três serviços (`oficina-backend`, `oficina-billing-service` e `oficina-execution-service`) e reaplique os Secrets e os Deployments. Em produção (`NODE_ENV=production`) os serviços se recusam a subir sem `JWT_SECRET`.
 
 Para reaproveitar um `JWT_SECRET` que já existe em vez de gerar outro, preencha `jwt_secret` no `terraform.tfvars`.
+
+### Depois do apply — senha do usuário de leitura do banco
+
+A Lambda de CPF não usa a conta mestre do RDS: ela entra como **`auth_reader`**, que só pode ler `id`, `name`, `email` e `document` da tabela `customers` (ADR-014). O Terraform gera a senha; o usuário é criado no banco pelo job de bootstrap do `oficina-backend`, então a senha precisa ir para lá:
+
+```bash
+terraform output -raw auth_reader_password
+```
+
+Coloque o valor em `AUTH_READER_PASSWORD` no `k8s/oficina-db-admin.yaml` do `oficina-backend` e rode o deploy do OS. Até o bootstrap criar o usuário, o login por CPF responde erro (a Lambda não consegue entrar no banco).
+
+Para reaproveitar uma senha que já existe, preencha `auth_reader_password` no `terraform.tfvars`.
 
 ## Como testar
 
