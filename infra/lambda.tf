@@ -119,7 +119,7 @@ resource "aws_lambda_function" "auth" {
 
   environment {
     variables = {
-      DATABASE_URL   = local.database_url
+      DATABASE_URL   = local.auth_database_url
       JWT_SECRET     = local.jwt_secret
       JWT_EXPIRES_IN = var.jwt_expires_in
       NODE_OPTIONS   = "--enable-source-maps"

@@ -28,3 +28,9 @@ output "jwt_secret" {
   value       = local.jwt_secret
   sensitive   = true
 }
+
+output "auth_reader_password" {
+  description = "Password of auth_reader, the CPF Lambda's read-only database user. It must be in AUTH_READER_PASSWORD of the oficina-backend oficina-db-admin Secret, whose bootstrap job creates the user. Read with `terraform output -raw auth_reader_password`."
+  value       = local.auth_reader_password
+  sensitive   = true
+}
