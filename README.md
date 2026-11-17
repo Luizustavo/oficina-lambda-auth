@@ -75,6 +75,8 @@ sequenceDiagram
 | `ANY /api/health/{proxy+}` | Aplicação no k3s | Não — healthcheck e monitoração |
 | `ANY /api/docs/{proxy+}` | Aplicação no k3s | Não — Swagger |
 | `ANY /api/auth/{proxy+}` | Aplicação no k3s | Não — login de usuário interno |
+| `ANY /api/billing/webhooks/{proxy+}` | Billing Service | Não — webhook do Mercado Pago, que não manda token; o Billing confere a assinatura `x-signature` |
+| `ANY /api/billing/health/{proxy+}`, `/api/billing/docs*` | Billing Service | Não — healthcheck e Swagger |
 | `ANY /{proxy+}` | Aplicação no k3s | **Sim** — Lambda authorizer |
 
 No HTTP API a rota mais específica vence a mais genérica, então as públicas têm precedência sobre o `ANY /{proxy+}` protegido.

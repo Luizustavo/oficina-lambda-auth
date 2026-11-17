@@ -113,6 +113,14 @@ locals {
     docs_yaml = "ANY /api/docs-yaml"
     auth      = "ANY /api/auth/{proxy+}"
     auth_raiz = "ANY /api/auth"
+
+    # Billing Service (Fase 4). O webhook do Mercado Pago não manda token: a
+    # autenticidade é conferida pelo Billing na assinatura x-signature.
+    billing_webhooks  = "ANY /api/billing/webhooks/{proxy+}"
+    billing_health    = "ANY /api/billing/health/{proxy+}"
+    billing_docs      = "ANY /api/billing/docs/{proxy+}"
+    billing_docs_raiz = "ANY /api/billing/docs"
+    billing_docs_json = "ANY /api/billing/docs-json"
   }
 }
 
